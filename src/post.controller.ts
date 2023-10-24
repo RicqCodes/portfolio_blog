@@ -19,8 +19,22 @@ export class PostController {
   async createBlogPost(@Body() createBlogPostDto: CreateBlogPostDto) {
     const newBlogPost =
       await this.postService.createBlogPost(createBlogPostDto);
-
-    return newBlogPost;
+    // Map the blogPost entity to BlogPostDto
+    const blogPostDto: CreateBlogPostDto = {
+      title: newBlogPost.title,
+      cover_image: newBlogPost.cover_image,
+      contentBlocks: newBlogPost.contentBlocks.map((block) => ({
+        type: block.type,
+        content: block.content,
+        imageUrl: block.imageUrl,
+        title: block.title,
+        codeType: block.codeType,
+        list: block.list,
+        links: block.links,
+      })),
+      tags: newBlogPost.tags.map((tag) => ({ name: tag.name })),
+    };
+    return blogPostDto;
   }
 
   @Get()
@@ -30,10 +44,10 @@ export class PostController {
     return blogPosts;
   }
 
-  @Get(':id')
-  async getBlogPost(@Param('id') id: number): Promise<BlogPost> {
+  @Get(':slug')
+  async getBlogPost(@Param('slug') slug: string): Promise<BlogPost> {
     // Call the getBlogPostById method from the service
-    return this.postService.getBlogPostById(id);
+    return this.postService.getBlogPostById(slug);
   }
 
   @Put(':id')

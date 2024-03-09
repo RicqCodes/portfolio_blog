@@ -8,7 +8,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   // Enable CORS for specific origins
   app.enableCors({
-    origin: 'https://ricqcodes.dev',
+    origin: ['https://ricqcodes.dev', 'https://www.ricqcodes.dev'],
   });
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe());

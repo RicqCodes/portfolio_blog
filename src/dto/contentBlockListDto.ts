@@ -1,4 +1,4 @@
-import { IsString, IsEnum } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsEnum, IsString } from 'class-validator';
 
 export class ContentBlockListItemDto {
   @IsString()
@@ -6,5 +6,7 @@ export class ContentBlockListItemDto {
   type: 'ordered' | 'unordered';
 
   @IsString({ each: true })
+  @IsArray()
+  @ArrayNotEmpty()
   content: string[];
 }

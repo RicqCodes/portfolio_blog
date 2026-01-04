@@ -1,0 +1,15 @@
+ricqcodes.dev {
+  reverse_proxy web:3000
+}
+
+www.ricqcodes.dev {
+  redir https://ricqcodes.dev{uri}
+}
+
+admin.ricqcodes.dev {
+  reverse_proxy admin:80
+}
+
+api.ricqcodes.dev {
+  reverse_proxy api:4000
+}

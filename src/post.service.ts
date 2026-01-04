@@ -1,180 +1,260 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CreateBlogPostDto } from './dto/post.dto';
+import { UpdateBlogPostDto } from './dto/post-update.dto';
 import { BlogPost } from './entity/post.entity';
 import { ContentBlock } from './entity/block.entity';
 import { Tag } from './entity/tag.entity';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Helper } from './helperClass';
+import { ContentBlockDto } from './dto/content.dto';
 
 @Injectable()
 export class PostService {
   constructor(
     @InjectRepository(BlogPost)
     private readonly blogPostRepository: Repository<BlogPost>,
-    @InjectRepository(Tag) private tagRepository: Repository<Tag>, // Make sure to include this line
+    @InjectRepository(Tag) private tagRepository: Repository<Tag>,
     @InjectRepository(ContentBlock)
-    private contentBlockRepository: Repository<ContentBlock>, // Make sure to include this line
+    private contentBlockRepository: Repository<ContentBlock>,
   ) {}
+
+  private createContentBlock(
+    blockDto: ContentBlockDto,
+    order: number,
+    blogPost: BlogPost,
+  ): ContentBlock {
+    const contentBlock = new ContentBlock();
+    contentBlock.type = blockDto.type;
+    contentBlock.order = order;
+
+    switch (blockDto.type) {
+      case 'text':
+        contentBlock.content = blockDto.content;
+        if (blockDto.links) {
+          contentBlock.links = blockDto.links;
+        }
+        break;
+      case 'heading':
+        contentBlock.title = blockDto.title;
+        break;
+      case 'divider':
+        contentBlock.content = blockDto.content;
+        break;
+      case 'image':
+        contentBlock.imageUrl = blockDto.imageUrl;
+        contentBlock.content = blockDto.content;
+        break;
+      case 'video':
+        contentBlock.content = blockDto.content;
+        break;
+      case 'code':
+        contentBlock.codeType = blockDto.codeType;
+        contentBlock.content = blockDto.content;
+        break;
+      case 'list':
+        contentBlock.list = blockDto.list;
+        if (blockDto.links) {
+          contentBlock.links = blockDto.links;
+        }
+        break;
+      default:
+        throw new BadRequestException(
+          `Unknown content block type: ${blockDto.type}`,
+        );
+    }
+
+    contentBlock.blogPost = blogPost;
+    return contentBlock;
+  }
   async createBlogPost(
     createBlogPostDto: CreateBlogPostDto,
   ): Promise<BlogPost> {
-    const { title, cover_image, contentBlocks, tags } = createBlogPostDto;
+    const { title, coverImage, contentBlocks, tags } = createBlogPostDto;
 
-    // Create a new BlogPost entity and set its properties
-    const blogPost = new BlogPost();
-    blogPost.title = title;
-    blogPost.cover_image = cover_image;
-    blogPost.readTime = Helper.calculateReadingTime(contentBlocks);
+    return this.blogPostRepository.manager.transaction(async (manager) => {
+      const blogPostRepository = manager.getRepository(BlogPost);
+      const tagRepository = manager.getRepository(Tag);
+      const contentBlockRepository = manager.getRepository(ContentBlock);
 
-    // Create and associate ContentBlocks with the blog post
-    const contentBlockEntities = contentBlocks.map((blockDto) => {
-      const contentBlock = new ContentBlock();
-      contentBlock.type = blockDto.type;
+      const blogPost = new BlogPost();
+      blogPost.title = title;
+      blogPost.coverImage = coverImage;
+      blogPost.readTime = Helper.calculateReadingTime(contentBlocks);
 
-      switch (blockDto.type) {
-        case 'text':
-          if (
-            blockDto.content !== undefined &&
-            blockDto.content.trim() !== ''
-          ) {
-            contentBlock.content = blockDto.content;
+      const savedBlogPost = await blogPostRepository.save(blogPost);
 
-            if (blockDto.links) {
-              contentBlock.links = blockDto.links;
-            }
-          }
-          break;
-        case 'heading':
-          // Handle heading type
-          contentBlock.title = blockDto.title;
-          // Set contentBlock.title and other properties accordingly
-          break;
-        case 'divider':
-          // Handle divider type
-          contentBlock.content = blockDto.content;
-          break;
-        case 'image':
-          // Handle image type
-          contentBlock.imageUrl = blockDto.imageUrl;
-          contentBlock.content = blockDto.content;
-          break;
-        case 'video':
-          // Handle video type
-          break;
-        case 'code':
-          // Handle code type
-          contentBlock.codeType = blockDto.codeType;
-          contentBlock.content = blockDto.content;
-          break;
-        case 'list':
-          // Handle list type
-          contentBlock.list = blockDto.list;
+      const contentBlockEntities = contentBlocks.map((blockDto, index) =>
+        this.createContentBlock(blockDto, index + 1, savedBlogPost),
+      );
 
-          if (blockDto.links) {
-            contentBlock.links = blockDto.links;
-          }
-          break;
-        default:
-          // Handle unknown type or raise an error
-          break;
-      }
-      contentBlock.blogPost = blogPost;
-      return contentBlock;
-    });
+      await contentBlockRepository.save(contentBlockEntities);
 
-    // Save the ContentBlock entities
-    await this.contentBlockRepository.insert(contentBlockEntities);
+      const tagEntities: Tag[] = [];
 
-    // Initialize an array to hold the associated tags
-    const tagEntities: Tag[] = [];
-
-    // Iterate over the provided tags
-    for (const tagDto of tags) {
-      // Check if the tag with the same name already exists in the database
-      let existingTag = await this.tagRepository.findOne({
-        where: { name: tagDto.name },
-        relations: ['blogPosts'], // Load the blogPosts relation
+      const tagNames = tags.map((tagDto) => tagDto.name);
+      const existingTags = await tagRepository.find({
+        where: { name: In(tagNames) },
+        relations: ['blogPosts'],
       });
+      const existingTagsMap = new Map(
+        existingTags.map((tag) => [tag.name, tag]),
+      );
 
-      if (!existingTag) {
-        existingTag = new Tag();
-        existingTag.name = tagDto.name;
-        existingTag.blogPosts = []; // Initialize blogPosts as an empty array
-        console.log('existing tag', existingTag);
+      for (const tagName of tagNames) {
+        let tag = existingTagsMap.get(tagName);
+
+        if (!tag) {
+          tag = new Tag();
+          tag.name = tagName;
+          tag.blogPosts = [];
+        }
+
+        if (!tag.blogPosts.find((post) => post.id === savedBlogPost.id)) {
+          tag.blogPosts = [...tag.blogPosts, savedBlogPost];
+        }
+        await tagRepository.save(tag);
+        tagEntities.push(tag);
       }
 
-      // Push the new blogPost into the tag's relation
-      existingTag.blogPosts = [...existingTag.blogPosts, blogPost];
+      savedBlogPost.contentBlocks = contentBlockEntities;
+      savedBlogPost.tags = tagEntities;
 
-      // Save the Tag entity if it's a new one
-      if (!existingTag.id) {
-        await this.tagRepository.save(existingTag);
-      }
-
-      tagEntities.push(existingTag);
-    }
-
-    // Set the associations
-    blogPost.contentBlocks = contentBlockEntities;
-    blogPost.tags = tagEntities;
-
-    // Save the new blog post to the database
-    return this.blogPostRepository.save(blogPost);
-  }
-
-  async getAllBlogPosts(): Promise<BlogPost[]> {
-    return this.blogPostRepository.find({
-      relations: { tags: true },
+      return blogPostRepository.save(savedBlogPost);
     });
   }
 
-  async getBlogPostById(slug: string): Promise<BlogPost> {
+  async getAllBlogPosts(
+    page: number,
+    limit: number,
+  ): Promise<{ items: BlogPost[]; total: number }> {
+    const [items, total] = await this.blogPostRepository.findAndCount({
+      relations: { tags: true },
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+    return { items, total };
+  }
+
+  async getBlogPostById(
+    slug: string,
+    incrementViews = true,
+  ): Promise<BlogPost> {
     const blogPost = await this.blogPostRepository.findOne({
       where: { slug },
       relations: { tags: true, contentBlocks: true },
-      order: {
-        id: 'asc',
-      },
+      order: { contentBlocks: { order: 'ASC' } },
     });
 
     if (!blogPost) throw new NotFoundException(`Blog post, ${slug} not found`);
 
-    // if (blogPost) {
-    // Sort the contentBlocks array by id in ascending order
-    blogPost.contentBlocks = blogPost.contentBlocks.sort((a, b) => a.id - b.id);
-    // }
-
-    // Increment the 'view' count
-    blogPost.views += 1;
-
-    // Save the updated blog post with the incremented 'view' count
-    await this.blogPostRepository.save(blogPost);
+    if (incrementViews) {
+      await this.blogPostRepository.increment({ id: blogPost.id }, 'views', 1);
+      // Ensure response reflects the incremented view count.
+      blogPost.views += 1;
+    }
 
     return blogPost;
   }
 
   async updateBlogPost(
     id: number,
-    updateData: Partial<BlogPost>,
+    updateData: UpdateBlogPostDto,
   ): Promise<BlogPost> {
-    const exisitingBlogPost = await this.blogPostRepository.findOne({
-      where: { id },
+    return this.blogPostRepository.manager.transaction(async (manager) => {
+      const blogPostRepository = manager.getRepository(BlogPost);
+      const tagRepository = manager.getRepository(Tag);
+      const contentBlockRepository = manager.getRepository(ContentBlock);
+
+      const existingBlogPost = await blogPostRepository.findOne({
+        where: { id },
+        relations: { tags: true, contentBlocks: true },
+      });
+
+      if (!existingBlogPost)
+        throw new NotFoundException(`Blog post with ID ${id} not found`);
+
+      if (updateData.title !== undefined) {
+        existingBlogPost.title = updateData.title;
+      }
+
+      if (updateData.coverImage !== undefined) {
+        existingBlogPost.coverImage = updateData.coverImage;
+      }
+
+      if (updateData.contentBlocks) {
+        await contentBlockRepository
+          .createQueryBuilder()
+          .delete()
+          .where('"blogPostId" = :postId', { postId: id })
+          .execute();
+
+        const contentBlockEntities = updateData.contentBlocks.map(
+          (blockDto, index) =>
+            this.createContentBlock(blockDto, index + 1, existingBlogPost),
+        );
+
+        await contentBlockRepository.save(contentBlockEntities);
+        existingBlogPost.contentBlocks = contentBlockEntities;
+        existingBlogPost.readTime = Helper.calculateReadingTime(
+          updateData.contentBlocks,
+        );
+      }
+
+      if (updateData.tags) {
+        const tagNames = updateData.tags.map((tagDto) => tagDto.name);
+        const existingTags = await tagRepository.find({
+          where: { name: In(tagNames) },
+          relations: ['blogPosts'],
+        });
+        const existingTagsMap = new Map(
+          existingTags.map((tag) => [tag.name, tag]),
+        );
+
+        const tagEntities: Tag[] = [];
+        for (const tagName of tagNames) {
+          let tag = existingTagsMap.get(tagName);
+
+          if (!tag) {
+            tag = new Tag();
+            tag.name = tagName;
+            tag.blogPosts = [];
+          }
+
+          if (!tag.blogPosts.find((post) => post.id === existingBlogPost.id)) {
+            tag.blogPosts = [...tag.blogPosts, existingBlogPost];
+          }
+          await tagRepository.save(tag);
+          tagEntities.push(tag);
+        }
+
+        existingBlogPost.tags = tagEntities;
+      }
+
+      await blogPostRepository.save(existingBlogPost);
+
+      const blogPostWithRelations = await blogPostRepository.findOne({
+        where: { id: existingBlogPost.id },
+        relations: { tags: true, contentBlocks: true },
+        order: { contentBlocks: { order: 'ASC' } },
+      });
+
+      return blogPostWithRelations ?? existingBlogPost;
     });
-
-    if (!exisitingBlogPost)
-      throw new NotFoundException(`Blog post with ID ${id} not found`);
-
-    const updatedBlogPost = Object.assign(exisitingBlogPost, updateData);
-
-    return this.blogPostRepository.save(updatedBlogPost);
   }
 
   async getBlogPostsByTag(tagName: string): Promise<BlogPost[]> {
     return this.blogPostRepository
       .createQueryBuilder('blogPost')
-      .innerJoin('blogPost.tags', 'tag')
+      .innerJoinAndSelect('blogPost.tags', 'tag')
       .innerJoinAndSelect('blogPost.contentBlocks', 'contentBlock')
+      .orderBy('blogPost.id', 'ASC')
+      .addOrderBy('contentBlock.order', 'ASC')
       .where('tag.name = :tagName', { tagName })
       .getMany();
   }

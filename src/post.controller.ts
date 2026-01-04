@@ -6,68 +6,92 @@ import {
   Post,
   Delete,
   Put,
+  ParseIntPipe,
+  Query,
+  DefaultValuePipe,
+  UseGuards,
 } from '@nestjs/common';
 import { PostService } from './post.service';
 import { CreateBlogPostDto } from './dto/post.dto';
-import { BlogPost } from './entity/post.entity';
+import {
+  BlogPostResponseDto,
+  PaginatedBlogPostSummaryDto,
+} from './dto/post-response.dto';
+import { UpdateBlogPostDto } from './dto/post-update.dto';
+import { mapBlogPostToResponse, mapBlogPostToSummary } from './post.mapper';
+import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 
 @Controller('posts')
 export class PostController {
   constructor(private readonly postService: PostService) {}
 
   @Post()
-  async createBlogPost(@Body() createBlogPostDto: CreateBlogPostDto) {
+  @UseGuards(JwtAuthGuard)
+  async createBlogPost(
+    @Body() createBlogPostDto: CreateBlogPostDto,
+  ): Promise<BlogPostResponseDto> {
     const newBlogPost =
       await this.postService.createBlogPost(createBlogPostDto);
-    // Map the blogPost entity to BlogPostDto
-    const blogPostDto: CreateBlogPostDto = {
-      title: newBlogPost.title,
-      cover_image: newBlogPost.cover_image,
-      contentBlocks: newBlogPost.contentBlocks.map((block) => ({
-        type: block.type,
-        content: block.content,
-        imageUrl: block.imageUrl,
-        title: block.title,
-        codeType: block.codeType,
-        list: block.list,
-        links: block.links,
-      })),
-      tags: newBlogPost.tags.map((tag) => ({ name: tag.name })),
-    };
-    return blogPostDto;
+    return mapBlogPostToResponse(newBlogPost);
   }
 
   @Get()
-  async getAllBlogPosts(): Promise<BlogPost[]> {
-    const blogPosts = await this.postService.getAllBlogPosts();
+  async getAllBlogPosts(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+  ): Promise<PaginatedBlogPostSummaryDto> {
+    const safePage = Math.max(page, 1);
+    const safeLimit = Math.min(Math.max(limit, 1), 50);
 
-    return blogPosts;
-  }
+    const { items, total } = await this.postService.getAllBlogPosts(
+      safePage,
+      safeLimit,
+    );
 
-  @Get(':slug')
-  async getBlogPost(@Param('slug') slug: string): Promise<BlogPost> {
-    // Call the getBlogPostById method from the service
-    return this.postService.getBlogPostById(slug);
-  }
-
-  @Put(':id')
-  async updateBlogPost(
-    @Param('id') id: number,
-    @Body() updateData: Partial<BlogPost>,
-  ): Promise<BlogPost> {
-    return await this.postService.updateBlogPost(id, updateData);
+    return {
+      items: items.map(mapBlogPostToSummary),
+      total,
+      page: safePage,
+      limit: safeLimit,
+    };
   }
 
   @Get('byTag/:tagName')
   async getBlogPostsByTag(
     @Param('tagName') tagName: string,
-  ): Promise<BlogPost[]> {
-    return this.postService.getBlogPostsByTag(tagName);
+  ): Promise<BlogPostResponseDto[]> {
+    const blogPosts = await this.postService.getBlogPostsByTag(tagName);
+    return blogPosts.map(mapBlogPostToResponse);
+  }
+
+  @Get(':slug')
+  async getBlogPost(
+    @Param('slug') slug: string,
+    @Query('incrementViews') incrementViews?: string,
+  ): Promise<BlogPostResponseDto> {
+    const shouldIncrement =
+      incrementViews !== 'false' && incrementViews !== '0';
+    const blogPost = await this.postService.getBlogPostById(
+      slug,
+      shouldIncrement,
+    );
+    return mapBlogPostToResponse(blogPost);
+  }
+
+  @Put(':id')
+  @UseGuards(JwtAuthGuard)
+  async updateBlogPost(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateData: UpdateBlogPostDto,
+  ): Promise<BlogPostResponseDto> {
+    const blogPost = await this.postService.updateBlogPost(id, updateData);
+    return mapBlogPostToResponse(blogPost);
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard)
   async deleteBlogPost(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
   ): Promise<{ status: string; message: string }> {
     return await this.postService.deleteBlogPost(id);
   }

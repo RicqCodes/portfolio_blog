@@ -1,0 +1,23 @@
+FROM oven/bun:1.1.38-alpine AS build
+
+WORKDIR /app
+
+COPY package.json bun.lock tsconfig*.json nest-cli.json ./
+COPY src ./src
+
+RUN bun install --frozen-lockfile
+RUN bun run build
+
+FROM oven/bun:1.1.38-alpine
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/package.json ./package.json
+
+EXPOSE 4000
+
+CMD ["bun", "dist/main.js"]

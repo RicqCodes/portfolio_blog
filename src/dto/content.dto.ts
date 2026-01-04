@@ -2,10 +2,13 @@ import {
   IsString,
   IsNotEmpty,
   IsOptional,
-  IsUrl,
   IsArray,
   ValidateNested,
   IsEnum,
+  ValidateIf,
+  ValidationArguments,
+  registerDecorator,
+  ValidationOptions,
 } from 'class-validator';
 import { ContentBlockListItemDto } from './contentBlockListDto';
 import { ContentBlockLinkDto } from './contentBlockLinkDto';
@@ -18,31 +21,64 @@ export class ContentBlockDto {
   @IsEnum(['text', 'heading', 'divider', 'image', 'video', 'code', 'list'])
   type: 'text' | 'heading' | 'divider' | 'image' | 'video' | 'code' | 'list';
 
-  @IsOptional()
+  @ValidateIf((o) => o.type === 'heading')
   @ValidateNested()
   @Type(() => ContentBlockTitleDto)
-  title: { type: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'p'; text: string };
+  title?: { type: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'p'; text: string };
 
-  @IsOptional()
+  @ValidateIf(
+    (o) =>
+      o.type === 'text' ||
+      o.type === 'code' ||
+      o.type === 'video',
+  )
   @IsString()
-  content: string;
+  @IsNotEmpty()
+  content?: string;
 
-  @IsOptional()
+  @ValidateIf((o) => o.type === 'list')
   @ValidateNested()
   @Type(() => ContentBlockListItemDto)
-  list: { type: 'ordered' | 'unordered'; content: string[] };
+  list?: { type: 'ordered' | 'unordered'; content: string[] };
 
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ContentBlockLinkDto)
-  links: ContentBlockLinkDto[];
+  links?: ContentBlockLinkDto[];
 
-  @IsOptional()
-  @IsUrl()
-  imageUrl: string;
+  @ValidateIf((o) => o.type === 'image')
+  @IsImageUrl()
+  imageUrl?: string;
 
-  @IsOptional()
+  @ValidateIf((o) => o.type === 'code')
   @IsString()
-  codeType: string;
+  @IsNotEmpty()
+  codeType?: string;
+}
+
+function IsImageUrl(validationOptions?: ValidationOptions) {
+  return function (object: object, propertyName: string) {
+    registerDecorator({
+      name: 'IsImageUrl',
+      target: object.constructor,
+      propertyName,
+      options: validationOptions,
+      validator: {
+        validate(value: unknown) {
+          if (typeof value !== 'string') return false;
+          if (value.startsWith('/uploads/')) return true;
+          try {
+            const parsed = new URL(value);
+            return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+          } catch {
+            return false;
+          }
+        },
+        defaultMessage(args: ValidationArguments) {
+          return `${args.property} must be a URL address`;
+        },
+      },
+    });
+  };
 }

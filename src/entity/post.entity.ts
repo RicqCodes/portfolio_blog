@@ -1,11 +1,12 @@
 import {
   BeforeInsert,
+  BeforeUpdate,
   Column,
   Entity,
+  Index,
   JoinTable,
   ManyToMany,
   OneToMany,
-  PrimaryGeneratedColumn,
 } from 'typeorm';
 import slugify from 'slugify';
 import { ContentBlock } from './block.entity';
@@ -14,20 +15,18 @@ import { AbstractEntity } from './abstract.entity';
 
 @Entity('blog_posts')
 export class BlogPost extends AbstractEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
-
   @Column({ unique: true })
   title: string;
 
-  @Column()
+  @Index()
+  @Column({ unique: true })
   slug: string;
 
   @Column({ default: 0 })
   readTime: number;
 
-  @Column()
-  cover_image: string;
+  @Column({ name: 'cover_image' })
+  coverImage: string;
 
   @Column({ default: 0 })
   views: number;
@@ -40,9 +39,8 @@ export class BlogPost extends AbstractEntity {
   tags: Tag[];
 
   @BeforeInsert()
+  @BeforeUpdate()
   generateSlug() {
     this.slug = slugify(this.title, { lower: true });
-    //   '-' +
-    //   ((Math.random() * Math.pow(36, 6)) | 0).toString(36);
   }
 }

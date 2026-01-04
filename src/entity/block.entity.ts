@@ -1,27 +1,20 @@
-import { Column, Entity, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, ManyToOne } from 'typeorm';
 import { BlogPost } from './post.entity';
-
-type ContentBlockType =
-  | 'text'
-  | 'heading'
-  | 'divider'
-  | 'image'
-  | 'video'
-  | 'code'
-  | 'list';
+import { AbstractEntity } from './abstract.entity';
+import { ContentBlockType } from '../types/content-block.types';
 
 @Entity('content_blocks')
-export class ContentBlock {
-  @PrimaryGeneratedColumn()
-  id: number;
-
+export class ContentBlock extends AbstractEntity {
   @Column({
     type: 'enum',
     enum: ['text', 'heading', 'divider', 'image', 'video', 'code', 'list'],
   })
   type: ContentBlockType;
 
-  @Column('text', { nullable: true })
+  @Column()
+  order: number;
+
+  @Column('jsonb', { nullable: true })
   title: { type: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'p'; text: string };
 
   @Column('text', { nullable: true })
@@ -39,6 +32,8 @@ export class ContentBlock {
   @Column({ nullable: true })
   codeType: string;
 
-  @ManyToOne(() => BlogPost, (BlogPost) => BlogPost.contentBlocks)
+  @ManyToOne(() => BlogPost, (blogPost) => blogPost.contentBlocks, {
+    onDelete: 'CASCADE',
+  })
   blogPost: BlogPost;
 }

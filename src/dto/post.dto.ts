@@ -9,7 +9,7 @@ export class CreateBlogPostDto {
   title: string;
 
   @IsString()
-  cover_image: string;
+  coverImage: string;
 
   @IsArray()
   @ValidateNested({ each: true })

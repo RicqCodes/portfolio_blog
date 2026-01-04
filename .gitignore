@@ -2,6 +2,7 @@
 /dist
 /node_modules
 blogData/
+uploads/
 
 # Logs
 logs
